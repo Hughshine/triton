@@ -265,7 +265,12 @@ class constexpr(base_value):
         return constexpr(self.value * _unwrap_if_constexpr(other))
 
     def __mod__(self, other):
-        return constexpr(self.value % _unwrap_if_constexpr(other))
+        lhs, rhs = self.value, _unwrap_if_constexpr(other)
+        # Float % lowers to tt.frem (C fmod, sign of dividend) at runtime; match it
+        # here so the constexpr fold agrees with the runtime/interpreter path.
+        if isinstance(lhs, float) or isinstance(rhs, float):
+            return constexpr(math.fmod(lhs, rhs))
+        return constexpr(lhs % rhs)
 
     def __rmul__(self, other):
         return constexpr(_unwrap_if_constexpr(other) * self.value)

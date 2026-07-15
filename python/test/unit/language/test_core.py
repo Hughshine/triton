@@ -5086,6 +5086,20 @@ def test_bin_op_constexpr(op, is_lhs_constexpr, is_rhs_constexpr, device):
     np.testing.assert_allclose(z, to_numpy(z_tri), rtol=1e-3)
 
 
+@pytest.mark.parametrize("a, b", [(-5.0, 3.0), (5.0, -3.0), (5.0, 3.0), (-5.0, -3.0)])
+def test_constexpr_float_mod_matches_frem(a, b, device):
+    # Constexpr float % must fold to the same value the runtime lowers (tt.frem == C fmod),
+    # not Python % (which carries the sign of the divisor for mixed-sign operands).
+    @triton.jit
+    def kernel(Z, A: tl.constexpr, B: tl.constexpr):
+        z: tl.constexpr = A % B
+        tl.store(Z, z + 0.0)
+
+    z_tri = to_triton(np.empty((1, ), dtype=np.float32), device=device)
+    kernel[(1, )](z_tri, a, b)
+    np.testing.assert_allclose(to_numpy(z_tri), np.array([math.fmod(a, b)], dtype=np.float32), rtol=1e-6)
+
+
 @pytest.mark.interpreter
 def test_constexpr_shape(device):
 
