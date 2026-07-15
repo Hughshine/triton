@@ -4410,6 +4410,34 @@ def test_full(dtype_str, shape, device):
     assert torch.all(out_dynamic == 2)
 
 
+@pytest.mark.parametrize("dtype_str", ["float8e4b15", "float8e4nv", "float8e5"])
+@pytest.mark.parametrize("value", [2.0, 0.1, -0.5])
+def test_full_fp8(dtype_str, value, device):
+    if is_hip():
+        pytest.skip("fp8 full constants not tested on HIP.")
+    elif is_cuda():
+        cc = torch.cuda.get_device_capability()
+        if dtype_str == "float8e4b15" and cc >= (9, 0):
+            pytest.skip("float8e4b15 not supported on CUDA >= 9.0")
+        if dtype_str == "float8e4nv" and cc < (8, 9):
+            pytest.skip("float8e4nv not supported on CUDA < 8.9")
+
+    @triton.jit
+    def kernel(out):
+        # constant path (the fixed branch): VALUE is a literal -> scalar_constant
+        c = tl.full((8, ), VALUE, dtype=DTYPE).to(tl.float32)
+        # reference: the .to() cast path, which was never broken for this type
+        r = tl.full((8, ), VALUE, dtype=tl.float32).to(DTYPE).to(tl.float32)
+        tl.store(out + tl.arange(0, 8), c)
+        tl.store(out + 8 + tl.arange(0, 8), r)
+
+    kernel_patched = patch_kernel(kernel, {"VALUE": repr(value), "DTYPE": f"tl.{dtype_str}"})
+    out = torch.zeros(16, dtype=torch.float32, device=device)
+    kernel_patched[(1, )](out)
+    const_val, ref_val = out[0].item(), out[8].item()
+    assert const_val == ref_val, f"tl.full const {const_val} != cast round-trip {ref_val}"
+
+
 @pytest.mark.parametrize("literal, dtype_str", [(1e+50, "f64"), (1e+10, "f32"), (1.0, "f32"), ('float("inf")', "f32"),
                                                 ('float("-inf")', "f32"), ('float("nan")', "f32"),
                                                 ('float("-nan")', "f32"), (0., "f32"), (5, "i32"), (2**40, "i64")])

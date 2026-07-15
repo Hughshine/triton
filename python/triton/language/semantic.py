@@ -605,8 +605,10 @@ class TritonSemantic(Generic[TensorTy]):
         if value == 0:
             value = self.builder.get_null_value(dtype.to_ir(self.builder))
         elif dtype.is_fp8():
-            value = self.builder.get_fp32(value)
-            value = self.builder.create_fp_trunc(value, dtype.to_ir(self.builder))
+            # fp8e4b15 is i8-backed and has no MLIR float type, so a raw truncf/fp_to_fp
+            # to it produces invalid IR. Route through cast, which dispatches fp8e4b15 to
+            # the target's convert_custom_types and other fp8 types to fp_to_fp.
+            return self.cast(self.tensor(self.builder.get_fp32(value), tl.float32), dtype)
         else:
             get_value_fn = getattr(self.builder, f"get_{dtype.name}")
             value = get_value_fn(value)
