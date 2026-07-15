@@ -4410,6 +4410,30 @@ def test_full(dtype_str, shape, device):
     assert torch.all(out_dynamic == 2)
 
 
+@pytest.mark.parametrize("dtype_str", ["float32", "float16", "bfloat16"])
+def test_full_negative_zero(dtype_str, device):
+    dtype = getattr(torch, dtype_str)
+    check_type_supported(dtype, device)
+
+    @triton.jit
+    def kernel_neg(out_ptr, DT: tl.constexpr):
+        tl.store(out_ptr + tl.arange(0, 1), tl.full((1, ), -0.0, DT))
+
+    @triton.jit
+    def kernel_pos(out_ptr, DT: tl.constexpr):
+        tl.store(out_ptr + tl.arange(0, 1), tl.full((1, ), 0.0, DT))
+
+    tl_dtype = getattr(tl, dtype_str)
+    out = torch.zeros((1, ), dtype=dtype, device=device)
+
+    neg_ttir = kernel_neg.warmup(out, tl_dtype, grid=(1, )).asm["ttir"]
+    assert re.search(r"arith\.constant dense<-0\.0+e\+00>", neg_ttir) is not None
+
+    pos_ttir = kernel_pos.warmup(out, tl_dtype, grid=(1, )).asm["ttir"]
+    assert re.search(r"arith\.constant dense<0\.0+e\+00>", pos_ttir) is not None
+    assert re.search(r"dense<-0", pos_ttir) is None
+
+
 @pytest.mark.parametrize("literal, dtype_str", [(1e+50, "f64"), (1e+10, "f32"), (1.0, "f32"), ('float("inf")', "f32"),
                                                 ('float("-inf")', "f32"), ('float("nan")', "f32"),
                                                 ('float("-nan")', "f32"), (0., "f32"), (5, "i32"), (2**40, "i64")])

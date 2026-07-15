@@ -1,5 +1,6 @@
 from __future__ import annotations  # remove after python 3.11
 import builtins
+import math
 import warnings
 
 from typing import List, Optional, Sequence, Tuple, TypeVar, Generic, Type
@@ -602,7 +603,11 @@ class TritonSemantic(Generic[TensorTy]):
         # scalar
         if dtype is None:
             raise ValueError("dtype must be specified when value is not a tensor")
-        if value == 0:
+        # get_null_value clears the sign bit, so route a signed -0.0 through the
+        # typed getters (which preserve it) rather than treating it as +0.0.
+        is_neg_zero = (dtype.is_floating() and isinstance(value, float) and value == 0.0
+                       and math.copysign(1.0, value) < 0.0)
+        if value == 0 and not is_neg_zero:
             value = self.builder.get_null_value(dtype.to_ir(self.builder))
         elif dtype.is_fp8():
             value = self.builder.get_fp32(value)
