@@ -445,6 +445,43 @@ def test_mxfp(BLOCK_M, BLOCK_N, BLOCK_K, NUM_STAGES, nonKDim, NUM_WARPS, device)
         assert "mma.sync.aligned.m16n8k32.row.col.kind::mxf8f6f4.block_scale.scale_vec::1X" in ptx
 
 
+@pytest.mark.interpreter
+def test_mxfp_e8m0_reserved_nan_scale(device):
+    from triton.runtime.interpreter import _e8m0_to_f32
+    import numpy as np
+    # unit: reserved E8M0 byte 0xFF is NaN, not +inf; 0x7F stays 2^0 == 1.0
+    assert np.isnan(_e8m0_to_f32(np.array([0xFF], dtype=np.uint8))[0])
+    assert _e8m0_to_f32(np.array([0x7F], dtype=np.uint8))[0] == 1.0
+
+    @triton.jit
+    def kernel(a_ptr, sa_ptr, b_ptr, c_ptr, M: tl.constexpr, N: tl.constexpr, K: tl.constexpr, KS: tl.constexpr):
+        am = tl.arange(0, M)[:, None]
+        ak = tl.arange(0, K)[None, :]
+        a = tl.load(a_ptr + am * K + ak)
+        bk = tl.arange(0, K)[:, None]
+        bn = tl.arange(0, N)[None, :]
+        b = tl.load(b_ptr + bk * N + bn)
+        sam = tl.arange(0, M)[:, None]
+        sak = tl.arange(0, KS)[None, :]
+        sa = tl.load(sa_ptr + sam * KS + sak)
+        c = tl.dot_scaled(a, sa, "e5m2", b, None, "e5m2", out_dtype=tl.float32)
+        cm = tl.arange(0, M)[:, None]
+        cn = tl.arange(0, N)[None, :]
+        tl.store(c_ptr + cm * N + cn, c)
+
+    M = N = K = 32
+    KS = K // 32
+    a = torch.full((M, K), 0x3C, dtype=torch.uint8, device=device)  # e5m2 1.0
+    b = torch.full((K, N), 0x3C, dtype=torch.uint8, device=device)
+    sa = torch.full((M, KS), 0x7F, dtype=torch.uint8, device=device)  # 2^0 == 1.0
+    sa[0, :] = 0xFF  # reserved NaN
+    c = torch.zeros((M, N), dtype=torch.float32, device=device)
+    kernel[(1, )](a, sa, b, c, M, N, K, KS)
+
+    assert torch.isnan(c[0]).all()  # row scaled by 0xFF -> NaN
+    torch.testing.assert_close(c[1], torch.full((N, ), 32.0, device=device))  # 0x7F row unaffected
+
+
 def _knob_promote_lhs_to_tmem(monkeypatch):
     # Promoting the LHS to TMEM should be patched because it will otherwise
     # unintentionally be enabled for all consecutive tests if using os.environ

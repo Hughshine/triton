@@ -253,10 +253,12 @@ def _umulhi_64(a, b):
 def _e8m0_to_f32(scale):
     assert scale.dtype in (np.uint8, np.int8)
     scale = scale.astype(np.uint8)
+    # E8M0 reserves 0xFF for NaN; the compiled path masks it (DecomposeScaledBlocked::maskNan).
+    nan_mask = scale == np.uint8(0xFF)
     scale = scale.astype(np.int32)
     scale = scale << 23
     scale = scale.view(np.float32)
-    return scale
+    return np.where(nan_mask, np.float32("nan"), scale)
 
 
 def _e2m1_to_f32(value):
