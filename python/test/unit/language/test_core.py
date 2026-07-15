@@ -459,6 +459,23 @@ def test_addptr(dtype, order, device):
 
 
 @pytest.mark.interpreter
+@pytest.mark.parametrize("dtype", ['uint8', 'uint16', 'uint32'])
+def test_sub_unsigned_offset_from_ptr(dtype, device):
+
+    @triton.jit
+    def kernel(x, out, K: tl.constexpr, DTYPE: tl.constexpr):
+        base = x
+        addr = base - tl.full((), K, DTYPE)
+        tl.store(out, addr.to(tl.int64) - base.to(tl.int64))
+
+    K = 8
+    x = torch.zeros(K, device=device, dtype=torch.int32)
+    out = torch.zeros((), device=device, dtype=torch.int64)
+    kernel[(1, )](x, out, K, getattr(tl, dtype))
+    assert int(out.item()) == -K * x.element_size(), int(out.item())
+
+
+@pytest.mark.interpreter
 @pytest.mark.parametrize("dtype_x, dtype_y", [  #
     (dtype_x, dtype_y) for dtype_x in int_dtypes for dtype_y in int_dtypes
 ] + [(dtype_x, dtype_y) for dtype_x in uint_dtypes for dtype_y in uint_dtypes])
