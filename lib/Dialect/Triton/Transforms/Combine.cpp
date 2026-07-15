@@ -171,9 +171,16 @@ public:
         cast<ShapedType>(broadcastRhsOp.getType()).getShape();
     if (broadcastLhsShape[2] < 16 || broadcastRhsShape[0] < 16)
       return failure();
+    Type origElemType =
+        cast<ShapedType>(broadcastLhsOp.getSrc().getType()).getElementType();
+    // A tt.dot with a sub-32-bit float accumulator is an illegal MMA, so
+    // accumulate in f32 and truncate the result back to the operand element
+    // type (the reduce's result type) when it is a narrower float.
+    bool needsTrunc = isa<FloatType>(origElemType) &&
+                      origElemType.getIntOrFloatBitWidth() < 32;
+    Type accElemType = needsTrunc ? rewriter.getF32Type() : origElemType;
     Type newAccType = RankedTensorType::get(
-        {broadcastLhsShape[0], broadcastRhsShape[2]},
-        cast<ShapedType>(broadcastLhsOp.getSrc().getType()).getElementType());
+        {broadcastLhsShape[0], broadcastRhsShape[2]}, accElemType);
     rewriter.setInsertionPoint(op);
     Value lhs = ReshapeOp::create(
         rewriter, op->getLoc(),
@@ -183,12 +190,20 @@ public:
         rewriter, op->getLoc(),
         broadcastRhsOp.getSrc().getType().getShape().drop_front(),
         broadcastRhsOp.getSrc());
-    auto newAcc =
-        SplatOp::create(rewriter, op->getLoc(), newAccType,
-                        arith::ConstantOp::create(rewriter, op->getLoc(),
-                                                  rewriter.getF32FloatAttr(0)));
-    rewriter.replaceOpWithNewOp<DotOp>(op, lhs, rhs, newAcc,
-                                       InputPrecision::IEEE, 0);
+    auto newAcc = SplatOp::create(
+        rewriter, op->getLoc(), newAccType,
+        arith::ConstantOp::create(rewriter, op->getLoc(),
+                                  rewriter.getFloatAttr(accElemType, 0)));
+    auto dot = DotOp::create(rewriter, op->getLoc(), newAccType, lhs, rhs,
+                             newAcc, InputPrecision::IEEE, 0);
+    if (needsTrunc) {
+      Type resultType = RankedTensorType::get(
+          {broadcastLhsShape[0], broadcastRhsShape[2]}, origElemType);
+      rewriter.replaceOpWithNewOp<arith::TruncFOp>(op, resultType,
+                                                   dot.getResult());
+    } else {
+      rewriter.replaceOp(op, dot.getResult());
+    }
     return success();
   }
 };
