@@ -2130,6 +2130,44 @@ def test_cast(dtype_x, dtype_z, bitcast, size, num_ctas, device):
         np.testing.assert_allclose(z_ref, to_numpy(z_tri), rtol=0, atol=0)
 
 
+@pytest.mark.parametrize("dst_str, exp", [
+    ("int8", 1),
+    ("int16", 1),
+    ("int32", 1),
+    ("int64", 1),
+    ("bfloat16", 1.0),
+    ("float64", 1.0),
+    ("float16", 1.0),
+    ("float32", 1.0),
+])
+def test_cast_from_fp8e4b15(dst_str, exp, device):
+    # fp8e4b15.to(dst) must produce dst, not silently keep an fp16 value
+    if not is_cuda():
+        pytest.skip("fp8e4b15 has a hardware conversion only on CUDA")
+    if torch.cuda.get_device_capability() >= (9, 0):
+        pytest.skip("float8e4b15 not supported on CUDA >= 9.0")
+
+    dst = getattr(
+        tl, {
+            "int8": "int8", "int16": "int16", "int32": "int32", "int64": "int64", "bfloat16": "bfloat16", "float64":
+            "float64", "float16": "float16", "float32": "float32"
+        }[dst_str])
+
+    @triton.jit
+    def kernel(In, Out, DST: tl.constexpr, SIZE: tl.constexpr):
+        off = tl.arange(0, SIZE)
+        x = tl.load(In + off).to(tl.float8e4b15, bitcast=True)  # 0x78 == 1.0
+        y = x.to(DST)
+        tl.static_assert(y.dtype == DST)
+        tl.store(Out + off, y)
+
+    SIZE = 4  # fp8e4b15 conversion packs 4 elements
+    bits = torch.full((SIZE, ), 0x78, dtype=torch.int8, device=device)
+    out = torch.empty((SIZE, ), dtype=getattr(torch, dst_str), device=device)
+    kernel[(1, )](bits, out, DST=dst, SIZE=SIZE, num_warps=1)
+    assert out[0].item() == exp
+
+
 @pytest.mark.interpreter
 @pytest.mark.parametrize("dtype_str, num_warps",
                          [(dtype_str, num_warps) for dtype_str in int_dtypes + float_dtypes for num_warps in [4, 8]])

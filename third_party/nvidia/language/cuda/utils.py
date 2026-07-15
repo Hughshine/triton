@@ -86,9 +86,12 @@ def convert_float16_to_fp8e4b15(arg, has_minx2, _semantic=None):
 @core.builtin
 def convert_custom_float8(arg, dst_ty, fp_downcast_rounding, has_minx2, _semantic=None):
     if arg.type.scalar.is_fp8e4b15():
+        # fp8e4b15 has a hardware conversion only to fp16; route every other
+        # destination through fp16 with a following standard cast so the
+        # requested dst_ty is honored instead of being silently dropped.
         upcast_val = convert_fp8e4b15_to_float16(arg, _semantic=_semantic)
-        if dst_ty.scalar.is_fp32():
-            upcast_val = upcast_val.to(core.float32, _semantic=_semantic)
+        if not dst_ty.scalar.is_fp16():
+            upcast_val = upcast_val.to(dst_ty.scalar, _semantic=_semantic)
         return upcast_val
 
     assert arg.type.scalar.is_fp16() or arg.type.scalar.is_fp32()
