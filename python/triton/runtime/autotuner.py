@@ -72,7 +72,7 @@ class Autotuner(KernelInterface):
         if post_hook:
             self.post_hook = post_hook
             self.user_defined_post_hook = True
-        elif len(self.restore_value) > 0:
+        elif len(self.restore_value) > 0 and not self.user_defined_pre_hook:
 
             def _post_hook(kwargs, exception):
                 for name, value in self.restore_copies.items():

@@ -84,6 +84,39 @@ def test_restore(pass_kwargs_to_kernel, device):
     triton.testing.assert_close(src, torch.ones_like(src))
 
 
+@pytest.mark.parametrize('pass_kwargs_to_kernel', [False, True])
+def test_restore_custom_pre_hook(pass_kwargs_to_kernel, device):
+    # A custom pre_hook overrides the default restore pre_hook, so the user owns the
+    # restore lifecycle; the default restore post_hook (which reads restore_copies,
+    # created only by the default pre_hook) must not be installed for it.
+    N = 1024
+    src = torch.zeros(N, device=device)
+
+    snapshot = {}
+
+    def _pre_hook(kwargs, reset_only=False):
+        for name in list(snapshot.keys()):
+            kwargs[name].copy_(snapshot.pop(name))
+        if not reset_only:
+            snapshot['src'] = kwargs['src'].clone()
+
+    configs = [triton.Config(kwargs={'BLOCK_SIZE': 32}), triton.Config(kwargs={'BLOCK_SIZE': 128})]
+
+    @triton.autotune(configs=configs, key=['N'], restore_value=['src'], pre_hook=_pre_hook, do_bench=do_bench)
+    @triton.jit
+    def _kernel(src, N, BLOCK_SIZE: tl.constexpr):
+        offsets = tl.program_id(0) * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+        x = tl.load(src + offsets, mask=offsets < N) + 1
+        tl.store(src + offsets, x, mask=offsets < N)
+
+    grid = lambda META: (triton.cdiv(N, META['BLOCK_SIZE']), )
+    if pass_kwargs_to_kernel:
+        _kernel[grid](src=src, N=N)
+    else:
+        _kernel[grid](src, N)
+    triton.testing.assert_close(src, torch.ones_like(src))
+
+
 @pytest.mark.parametrize('src_is_none', [False, True])
 @pytest.mark.parametrize('pass_kwargs_to_kernel', [False, True])
 def test_reset_to_zero(pass_kwargs_to_kernel, src_is_none, device):
