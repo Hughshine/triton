@@ -835,6 +835,16 @@ class TritonSemantic(Generic[TensorTy]):
             assert self.builder.codegen_fns.get(
                 "convert_custom_types") is not None, "target doesn't provide conversion for this type."
             return self.builder.codegen_fns["convert_custom_types"](input, dst_ty, fp_downcast_rounding, _semantic=self)
+        # fp8 <=> fp64 has no direct lowering; route through fp32 (cf. the
+        # bf16 <=> (not fp32) decomposition below). An fp8 mantissa is far
+        # narrower than fp32's, so the extra fp64 <-> fp32 step is exact w.r.t.
+        # the fp8 result; any requested downcast rounding is applied on the
+        # fp32 -> fp8 step.
+        if (src_sca_ty.is_fp8() and dst_sca_ty.is_fp64()) or \
+           (src_sca_ty.is_fp64() and dst_sca_ty.is_fp8()):
+            rounding = 'rtne' if fp_downcast_rounding == ir.ROUNDING_MODE.RTNE else \
+                       ('rtz' if fp_downcast_rounding == ir.ROUNDING_MODE.RTZ else None)
+            return self.cast(self.cast(input, tl.float32), dst_sca_ty, rounding)
         # Casting with customized floating types involved: fp8 <=> bf16, fp16, fp32, fp64
         # and non-default rounding modes for downcasting
         if (src_sca_ty.is_fp8() and dst_sca_ty.is_floating()) or \

@@ -2131,6 +2131,33 @@ def test_cast(dtype_x, dtype_z, bitcast, size, num_ctas, device):
 
 
 @pytest.mark.interpreter
+@pytest.mark.parametrize("dtype_f8", torch_float8_dtypes)
+@pytest.mark.parametrize("direction", ["down", "up"])
+def test_cast_fp64_fp8(dtype_f8, direction, device):
+    check_type_supported('float64', device)
+    check_type_supported(dtype_f8, device)
+
+    @triton.jit
+    def kernel(X, Z, TO_TYPE: tl.constexpr, SIZE: tl.constexpr):
+        off = tl.arange(0, SIZE)
+        tl.store(Z + off, tl.load(X + off).to(TO_TYPE))
+
+    size = 32
+    if direction == "down":  # float64 -> fp8 (fail-before: aborts codegen)
+        x = torch.randn(size, dtype=torch.float64, device=device)
+        x = x.to(getattr(torch, dtype_f8)).to(torch.float64)  # representable in fp8
+        z = torch.empty(size, dtype=torch.half, device=device).to(getattr(torch, dtype_f8))
+        to_ty = str_to_triton_dtype(dtype_f8)
+    else:  # fp8 -> float64 (fail-before: aborts codegen)
+        x = torch.randn(size, dtype=torch.half, device=device).to(getattr(torch, dtype_f8))
+        z = torch.empty(size, dtype=torch.float64, device=device)
+        to_ty = tl.float64
+
+    kernel[(1, )](x, z, TO_TYPE=to_ty, SIZE=size, num_warps=1)
+    torch.testing.assert_close(x.to(z.dtype), z, rtol=0, atol=0)
+
+
+@pytest.mark.interpreter
 @pytest.mark.parametrize("dtype_str, num_warps",
                          [(dtype_str, num_warps) for dtype_str in int_dtypes + float_dtypes for num_warps in [4, 8]])
 @pytest.mark.parametrize("can_reorder", [True, False])
