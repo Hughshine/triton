@@ -434,7 +434,7 @@ def sort_impl(x, k: core.constexpr = None, dim: core.constexpr = None, descendin
     :type descending: bool, optional
     """
     # handle default dimension or check that it is the most minor dim
-    _dim: core.constexpr = len(x.shape) - 1 if dim is None else dim
+    _dim: core.constexpr = (len(x.shape) - 1) if dim is None else (dim + len(x.shape) if dim < 0 else dim)
     core.static_assert(_dim == len(x.shape) - 1, "only minor dimension is currently supported")
 
     log_n: core.constexpr = _log2(x.shape[_dim])
@@ -496,7 +496,7 @@ def topk(x, k: core.constexpr, dim: core.constexpr = None, descending: core.cons
 @jit
 def bitonic_merge(x, dim: core.constexpr = None, descending: core.constexpr = core.CONSTEXPR_0):
     # handle default dimension or check that it is the most minor dim
-    _dim: core.constexpr = len(x.shape) - 1 if dim is None else dim
+    _dim: core.constexpr = (len(x.shape) - 1) if dim is None else (dim + len(x.shape) if dim < 0 else dim)
     core.static_assert(_dim == len(x.shape) - 1, "only minor dimension is currently supported")
     n_dims: core.constexpr = _log2(x.shape[-1])
     return _bitonic_merge(x, n_dims, descending, n_dims)

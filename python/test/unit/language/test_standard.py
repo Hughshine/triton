@@ -59,6 +59,64 @@ def test_sort(M, N, k, descending, dtype_str, device):
     assert (y == z).all(), (y, z)
 
 
+@pytest.mark.interpreter
+@pytest.mark.parametrize("dim", [None, 1, -1])
+@pytest.mark.parametrize("dtype_str", ['int32', 'float16', 'float32'])
+def test_sort_negative_dim(dim, dtype_str, device):
+    # -1 is the canonical last-axis spelling and the only axis sort supports.
+
+    @triton.jit
+    def sort_kernel(X, Z, M: tl.constexpr, N: tl.constexpr, dim: tl.constexpr):
+        offs_m = tl.arange(0, M)
+        offs_n = tl.arange(0, N)
+        offs = offs_m[:, None] * N + offs_n[None, :]
+        x = tl.load(X + offs)
+        z = tl.sort(x, dim=dim)
+        tl.store(Z + offs, z)
+
+    M, N = 8, 64
+    x = numpy_random((M, N), dtype_str=dtype_str)
+    x = torch.from_numpy(x).to(device)
+    z = torch.empty_like(x)
+    y = torch.sort(x, dim=-1)[0]
+    sort_kernel[(1, )](x, z, M, N, dim, num_warps=8)
+    assert (y == z).all(), (y, z)
+
+
+@pytest.mark.interpreter
+@pytest.mark.parametrize("dtype_str", ['int32', 'float32'])
+def test_topk_bitonic_merge_negative_dim(dtype_str, device):
+    # topk (via sort_impl) and bitonic_merge share the same dim path as sort.
+
+    @triton.jit
+    def topk_kernel(X, Z, M: tl.constexpr, N: tl.constexpr, k: tl.constexpr):
+        offs_m = tl.arange(0, M)
+        offs_x = offs_m[:, None] * N + tl.arange(0, N)[None, :]
+        offs_z = offs_m[:, None] * k + tl.arange(0, k)[None, :]
+        x = tl.load(X + offs_x)
+        tl.store(Z + offs_z, tl.topk(x, k, dim=-1))
+
+    @triton.jit
+    def bmerge_kernel(X, Z1, Zm1, M: tl.constexpr, N: tl.constexpr):
+        offs = tl.arange(0, M)[:, None] * N + tl.arange(0, N)[None, :]
+        x = tl.load(X + offs)
+        tl.store(Z1 + offs, tl.bitonic_merge(x, dim=1))
+        tl.store(Zm1 + offs, tl.bitonic_merge(x, dim=-1))
+
+    M, N, k = 8, 64, 8
+    x = numpy_random((M, N), dtype_str=dtype_str)
+    x = torch.from_numpy(x).to(device)
+
+    z = torch.empty((M, k), dtype=x.dtype, device=device)
+    topk_kernel[(1, )](x, z, M, N, k, num_warps=8)
+    assert (torch.topk(x, k=k, largest=True).values == z).all()
+
+    z1 = torch.empty_like(x)
+    zm1 = torch.empty_like(x)
+    bmerge_kernel[(1, )](x, z1, zm1, M, N, num_warps=8)
+    assert (z1 == zm1).all()  # dim=-1 must equal the positive minor dim
+
+
 # ---------------
 # test flip op
 # ---------------
