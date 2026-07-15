@@ -1573,7 +1573,15 @@ class CodeGenerator(ast.NodeVisitor):
                         node,
                         "Cannot evaluate f-string containing non-constexpr conversion values, found conversion of type "
                         + str(type(evaluated)))
-                values[i] = ("{}" if conversion_code < 0 else "{!" + chr(conversion_code) + "}").format(evaluated.value)
+                # _is_constexpr also admits dtype / JITCallable / None, none of which carry a .value;
+                # unwrap only constexpr and format the rest by their name / own str().
+                if isinstance(evaluated, constexpr):
+                    to_format = evaluated.value
+                elif isinstance(evaluated, JITCallable):
+                    to_format = evaluated.__name__
+                else:
+                    to_format = evaluated
+                values[i] = ("{}" if conversion_code < 0 else "{!" + chr(conversion_code) + "}").format(to_format)
             else:
                 raise AssertionError("encountered unexpected node of type {} in a JoinedStr node".format(type(value)))
         return ''.join(values)

@@ -260,6 +260,38 @@ def test_power_of_two_shapes_2():
     assert str(e.value.__cause__) == "Shape element 0 must be a power of 2"
 
 
+@triton.jit
+def _fstring_helper(x):
+    return x
+
+
+def test_fstring_dtype_and_jit_no_err():
+    # _is_constexpr admits dtype / JITCallable, so an f-string interpolating one must format (not crash on a missing .value).
+    @triton.jit
+    def kernel_dtype():
+        d = tl.float32
+        tl.static_print(f"d={d}")
+
+    @triton.jit
+    def kernel_jit():
+        tl.static_print(f"fn={_fstring_helper}")
+
+    triton.compile(triton.compiler.ASTSource(fn=kernel_dtype, signature={}, constexprs={}))
+    triton.compile(triton.compiler.ASTSource(fn=kernel_jit, signature={}, constexprs={}))
+
+
+def test_fstring_non_constexpr_still_rejected():
+    # Control: a runtime tensor operand is not constexpr-like and must still be cleanly rejected.
+    @triton.jit
+    def kernel():
+        x = tl.arange(0, 4) + 1
+        tl.static_print(f"x={x}")
+
+    with pytest.raises(CompilationError) as e:
+        triton.compile(triton.compiler.ASTSource(fn=kernel, signature={}, constexprs={}))
+    assert "Cannot evaluate f-string containing non-constexpr conversion values" in str(e.value)
+
+
 GLOBAL = 42
 
 
