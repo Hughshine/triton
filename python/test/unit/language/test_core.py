@@ -5188,6 +5188,23 @@ def test_tma_store_block_shape_err(device):
     assert "Descriptor block shape must have at least 16 bytes" in str(e.value.__cause__)
 
 
+@pytest.mark.interpreter
+def test_tma_leading_stride_align_err(device):
+
+    @triton.jit
+    def kernel(ptr):
+        # leading stride 18 elems * 4 bytes (fp32) = 72, 72 % 16 == 8 -> misaligned
+        desc = tl.make_tensor_descriptor(ptr, [8, 16], [18, 1], [8, 16])
+        desc.load([0, 0])
+
+    input = torch.empty((8, 18), dtype=torch.float32, device=device)
+    errc = triton.CompilationError if not is_interpreter() else InterpreterError
+    with pytest.raises(errc) as e:
+        kernel[(1, )](input)
+
+    assert "Tensor descriptor strides must be 16-byte aligned" in str(e.value.__cause__)
+
+
 def test_trans_reshape(device, with_allocator):
 
     @triton.jit

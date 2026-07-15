@@ -1904,6 +1904,14 @@ class TritonSemantic(Generic[TensorTy]):
         if last_stride != 1:
             raise ValueError(f"Tensor descriptor last dim must be 1 but got {last_stride}")
 
+        # Leading-dim strides must be 16-byte aligned for the TMA path, mirroring the host-side
+        # helper triton/tools/tensor_descriptor.py (TensorDescriptor.__post_init__).
+        for i, stride in enumerate(strides[:-1]):
+            stride = tl._unwrap_if_constexpr(stride)
+            if isinstance(stride, int) and (stride * elem_size) % 16 != 0:
+                raise ValueError(f"Tensor descriptor strides must be 16-byte aligned, but stride[{i}] = "
+                                 f"{stride} * {elem_size} = {stride * elem_size} bytes is not a multiple of 16")
+
         shape = [self.make_scalar(x, tl.int32) for x in shape]
         strides = [self.make_scalar(tl._unwrap_if_constexpr(x), tl.int64) for x in strides]
 
