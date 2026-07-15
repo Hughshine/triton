@@ -73,6 +73,8 @@ def cdiv(x: int, y: int):
 @constexpr_function
 def next_power_of_2(n: int):
     """Return the smallest power of 2 greater than or equal to n"""
+    if n <= 1:
+        return 1
     n -= 1
     n |= n >> 1
     n |= n >> 2
