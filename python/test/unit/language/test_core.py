@@ -2555,6 +2555,48 @@ def test_max_returns_zero(device):
 
 
 @pytest.mark.interpreter
+def test_max_min_return_indices_axis_none(device):
+    # return_indices=True with the default axis=None reduces all dims, returning a flattened index.
+    @triton.jit
+    def kernel(X, Vo, Io, N: tl.constexpr, IS_MAX: tl.constexpr):
+        x = tl.load(X + tl.arange(0, N))
+        if IS_MAX:
+            v, i = tl.max(x, return_indices=True)  # default axis=None
+        else:
+            v, i = tl.min(x, return_indices=True)
+        tl.store(Vo, v)
+        tl.store(Io, i)
+
+    N = 8
+    x = torch.tensor([3., 1., 4., 1., 5., 9., 2., 6.], device=device)
+    vo = torch.empty(1, device=device)
+    io = torch.empty(1, dtype=torch.int32, device=device)
+
+    kernel[(1, )](x, vo, io, N=N, IS_MAX=True)
+    assert vo[0] == x.max()
+    assert io[0] == x.argmax()
+
+    kernel[(1, )](x, vo, io, N=N, IS_MAX=False)
+    assert vo[0] == x.min()
+    assert io[0] == x.argmin()
+
+    # 2D: the index must be flattened over all elements (matches torch on x.flatten()).
+    @triton.jit
+    def kernel_2d(X, Vo, Io, M: tl.constexpr, N: tl.constexpr):
+        off = tl.arange(0, M)[:, None] * N + tl.arange(0, N)[None, :]
+        x = tl.load(X + off)
+        v, i = tl.max(x, return_indices=True)
+        tl.store(Vo, v)
+        tl.store(Io, i)
+
+    M, N2 = 4, 8
+    x2 = torch.randn(M, N2, device=device)
+    kernel_2d[(1, )](x2, vo, io, M=M, N=N2)
+    assert vo[0] == x2.max()
+    assert io[0] == x2.flatten().argmax()
+
+
+@pytest.mark.interpreter
 def test_max_min_with_nan(device):
     # In triton, we implement a "nan ignore" style, which means if there is NaN
     # in the reduce dimesion, we should ignore it and return the max/min number,

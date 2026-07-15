@@ -2963,6 +2963,16 @@ def _promote_bfloat16_to_float32(t, _semantic=None):
 @builtin
 def _reduce_with_indices(input, axis, combine_fn, keep_dims=False, _semantic=None, _generator=None):
     axis = _unwrap_if_constexpr(axis)
+    if axis is None:
+        # axis=None reduces all dims (like the value path); flatten so the index spans every element.
+        ndims = len(input.shape)
+        flat = reshape(input, [input.numel], can_reorder=True, _semantic=_semantic, _generator=_generator)
+        rvalue, rindices = _reduce_with_indices(flat, 0, combine_fn, _semantic=_semantic, _generator=_generator)
+        if keep_dims:
+            for _ in builtins.range(ndims):
+                rvalue = expand_dims(rvalue, 0, _semantic=_semantic)
+                rindices = expand_dims(rindices, 0, _semantic=_semantic)
+        return rvalue, rindices
     n = input.shape[axis]
     index = arange(0, n, _semantic=_semantic)
 
