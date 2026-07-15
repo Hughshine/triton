@@ -2273,6 +2273,37 @@ def test_umulhi(dtype_str, device):
 
 
 @pytest.mark.interpreter
+@pytest.mark.parametrize("dtype_str", ['int32'])
+def test_umulhi_signed(dtype_str, device):
+    # umulhi is unsigned (mul.hi.u32): a negative signed operand must be treated as its bit pattern.
+
+    @triton.jit
+    def kernel(X, Y, Z, N: tl.constexpr):
+        offs = tl.arange(0, N)
+        x = tl.load(X + offs)
+        y = tl.load(Y + offs)
+        z = tl.umulhi(x, y)
+        tl.store(Z + tl.arange(0, N), z)
+
+    def umulhi32_unsigned(a, b):
+        # zero-extend the 32-bit bit pattern (matches the GPU's mul.hi.u32)
+        a_u = a.astype(np.uint32).astype(np.uint64)
+        b_u = b.astype(np.uint32).astype(np.uint64)
+        return ((a_u * b_u) >> 32).astype(np.int32)
+
+    N = 8
+    x = np.array([-1, -2, -100000, -2147483648, 3, 65536, 100000, 2], dtype=np.int32)
+    y = np.array([-1, 2, 100000, 2, 5, 65536, 100000, 3], dtype=np.int32)
+    x_tri = to_triton(x, device=device)
+    y_tri = to_triton(y, device=device)
+    z_tri = torch.zeros_like(x_tri)
+    kernel[(1, )](x_tri, y_tri, z_tri, N=N)
+
+    z_ref = umulhi32_unsigned(x, y)
+    np.testing.assert_equal(z_ref, to_numpy(z_tri))
+
+
+@pytest.mark.interpreter
 def test_join(device):
 
     @triton.jit

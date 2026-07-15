@@ -637,9 +637,11 @@ class InterpreterBuilder:
         if dtype == np.int64 or dtype == np.uint64:
             return TensorHandle(np_umulhi_u64(lhs.data, rhs.data), lhs.dtype.scalar)
         else:
+            uint_dtype = getattr(np, f"uint{dtype.itemsize * 8}")
             compute_dtype = getattr(np, f"uint{dtype.itemsize * 8 * 2}")
-            lhs_data = lhs.data.astype(compute_dtype)
-            rhs_data = rhs.data.astype(compute_dtype)
+            # umulhi is unsigned: zero-extend the operand bit pattern (a signed astype would sign-extend).
+            lhs_data = lhs.data.view(uint_dtype).astype(compute_dtype)
+            rhs_data = rhs.data.view(uint_dtype).astype(compute_dtype)
             ret_data = np.multiply(lhs_data, rhs_data) >> (dtype.itemsize * 8)
             return TensorHandle(ret_data.astype(dtype), lhs.dtype.scalar)
 
