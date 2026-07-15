@@ -3126,6 +3126,25 @@ def test_histogram_silent_data_corruption(device):
     assert z[1] == 1, f"Second element shouldn't be affected, expected_buffer=[1, 1], actual_buffer={z}"
 
 
+@pytest.mark.interpreter
+@pytest.mark.parametrize("dtype, M", [('int8', 256), ('int16', 65536)])
+def test_histogram_narrow_int_count(dtype, M, device):
+    if not is_interpreter():
+        pytest.skip("int8/int16 histogram is not supported on the compiled path")
+
+    @triton.jit
+    def histogram_kernel(x_ptr, z_ptr, M: tl.constexpr, N: tl.constexpr):
+        x = tl.load(x_ptr + tl.arange(0, M))
+        z = tl.histogram(x, N)
+        tl.store(z_ptr + tl.arange(0, N), z)
+
+    N = 4
+    x = torch.ones(M, device=device, dtype=getattr(torch, dtype))
+    z = torch.zeros(N, dtype=torch.int32, device=device)
+    histogram_kernel[(1, )](x, z, M=M, N=N)
+    assert z[1] == M, f"bin 1 count must be {M} regardless of input dtype, got {z.tolist()}"
+
+
 # ------------------------
 # test histogram with mask
 # ------------------------
