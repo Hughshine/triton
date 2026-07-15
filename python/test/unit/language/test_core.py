@@ -2636,6 +2636,42 @@ def test_argmax_argmin_tie_break_fast_with_nan(device):
     assert idx.item() == 2, f"expected 2, got {idx.item()}"
 
 
+@pytest.mark.parametrize("dtype", ["float8_e4m3fn", "float8_e5m2"])
+def test_argmax_argmin_fp8(dtype, device):
+    # tl.argmax/tl.argmin must promote a sub-32-bit float (fp8, i8-backed) to
+    # float32 before the index comparator, mirroring the value path. Without the
+    # promotion the reduce body emits arith.cmpf on the i8-backed fp8 type, which
+    # has no llvm.fcmp lowering and aborts ConvertTritonGPUToLLVM.
+    if is_cuda() and dtype == "float8_e4m3fn" and torch.cuda.get_device_capability()[0] * 10 + \
+            torch.cuda.get_device_capability()[1] < 89:
+        pytest.skip("float8_e4m3fn requires NVGPU cc >= 8.9")
+    torch_dtype = getattr(torch, dtype)
+
+    @triton.jit
+    def argmax_kernel(x_ptr, idx_ptr, N: tl.constexpr, BLOCK: tl.constexpr):
+        offsets = tl.arange(0, BLOCK)
+        x = tl.load(x_ptr + offsets, mask=offsets < N, other=-float("inf"))
+        tl.store(idx_ptr, tl.argmax(x, axis=0))
+
+    @triton.jit
+    def argmin_kernel(x_ptr, idx_ptr, N: tl.constexpr, BLOCK: tl.constexpr):
+        offsets = tl.arange(0, BLOCK)
+        x = tl.load(x_ptr + offsets, mask=offsets < N, other=float("inf"))
+        tl.store(idx_ptr, tl.argmin(x, axis=0))
+
+    # max at index 5, min at index 3
+    vals = [1.0, 3.0, 2.0, 0.0, 4.0, 7.0, 5.0, 6.0]
+    x = torch.tensor(vals, dtype=torch_dtype, device=device)
+    idx = torch.empty((), dtype=torch.int32, device=device)
+
+    argmax_kernel[(1, )](x, idx, N=8, BLOCK=8)
+    assert idx.item() == 5, f"argmax {dtype}: expected 5, got {idx.item()}"
+
+    idx.zero_()
+    argmin_kernel[(1, )](x, idx, N=8, BLOCK=8)
+    assert idx.item() == 3, f"argmin {dtype}: expected 3, got {idx.item()}"
+
+
 def get_reduced_dtype(dtype_str, op):
     if op in ('argmin', 'argmax'):
         return 'int32'

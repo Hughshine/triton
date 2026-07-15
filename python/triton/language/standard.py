@@ -176,6 +176,13 @@ def _elementwise_max(a, b):
                             tie_break_arg="return_indices_tie_break_left")
 def max(input, axis=None, return_indices=False, return_indices_tie_break_left=True, keep_dims=False):
     input = core._promote_bfloat16_to_float32(input)
+    # fp8 (and any sub-32-bit float) is i8/i16-backed and has no native fcmp; promote it
+    # before the index comparator, mirroring the value path below. The bfloat16 promotion
+    # above only covers bfloat16, so return_indices would otherwise reach _argmax_combine
+    # with a raw fp8 value and emit an arith.cmpf that has no llvm.fcmp lowering.
+    if core.constexpr(input.dtype.is_floating()) and core.constexpr(
+            input.dtype.primitive_bitwidth) < core.constexpr(32):
+        input = input.to(core.float32)
     if return_indices:
         if return_indices_tie_break_left:
             return core._reduce_with_indices(input, axis, _argmax_combine_tie_break_left, keep_dims=keep_dims)
@@ -235,6 +242,13 @@ def _elementwise_min(a, b):
                             tie_break_arg="return_indices_tie_break_left")
 def min(input, axis=None, return_indices=False, return_indices_tie_break_left=True, keep_dims=False):
     input = core._promote_bfloat16_to_float32(input)
+    # fp8 (and any sub-32-bit float) is i8/i16-backed and has no native fcmp; promote it
+    # before the index comparator, mirroring the value path below. The bfloat16 promotion
+    # above only covers bfloat16, so return_indices would otherwise reach _argmin_combine
+    # with a raw fp8 value and emit an arith.cmpf that has no llvm.fcmp lowering.
+    if core.constexpr(input.dtype.is_floating()) and core.constexpr(
+            input.dtype.primitive_bitwidth) < core.constexpr(32):
+        input = input.to(core.float32)
     if return_indices:
         if return_indices_tie_break_left:
             return core._reduce_with_indices(input, axis, _argmin_combine_tie_break_left, keep_dims=keep_dims)
