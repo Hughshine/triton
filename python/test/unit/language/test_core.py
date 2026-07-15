@@ -7167,6 +7167,21 @@ def test_cumsum_dtype(device):
 
 
 @pytest.mark.interpreter
+def test_cumprod_dtype(device):
+
+    @triton.jit
+    def kernel(Z):
+        x = tl.full((16, ), 2, dtype=tl.int8)
+        z = tl.cumprod(x, axis=0)
+        tl.store(Z + tl.arange(0, 16), z)
+
+    z = torch.zeros(16, dtype=torch.int32, device=device)
+    kernel[(1, )](z)
+    expected = torch.tensor([2**i for i in range(1, 17)], dtype=torch.int32, device=device)
+    assert torch.equal(z, expected)
+
+
+@pytest.mark.interpreter
 def test_tensor_member(device):
 
     @triton.jit

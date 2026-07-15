@@ -357,6 +357,11 @@ def _prod_combine(a, b):
 def cumprod(input, axis=0, reverse=False):
     # todo rename this to a generic function name
     input = core._promote_bfloat16_to_float32(input)
+    out_dtype: core.constexpr = _pick_sum_dtype(input.dtype, None)
+
+    if out_dtype is not None:
+        input = input.to(out_dtype)
+
     return core.associative_scan(input, axis, _prod_combine, reverse)
 
 
