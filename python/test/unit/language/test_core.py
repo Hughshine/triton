@@ -158,6 +158,21 @@ def test_scalar_overflow(device):
         kernel[(1, )]()
 
 
+@pytest.mark.interpreter
+@pytest.mark.parametrize("expr", ["x < C", "x > C", "x <= C", "x >= C", "x == C", "x != C"])
+def test_scalar_compare_overflow(expr, device):
+    # a signed-int32 tensor compared against a Python-int literal in [2**31, 2**32) must be
+    # range-rejected like x + C, not silently reinterpreted as a negative int32
+    @triton.jit
+    def kernel(C: tl.constexpr):
+        x = tl.full((), -1, dtype=tl.int32)
+        _ = GENERATE_TEST_HERE
+
+    kernel = patch_kernel(kernel, {'GENERATE_TEST_HERE': expr})
+    with pytest.raises(triton.TritonError, match="out of range"):
+        kernel[(1, )](2**31)
+
+
 # generic test functions
 def _test_unary(dtype_x, expr, numpy_expr=None, device='cuda', num_ctas=1):
     check_type_supported(dtype_x, device)  # early return if dtype_x is not supported
