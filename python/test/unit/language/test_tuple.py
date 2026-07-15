@@ -348,6 +348,23 @@ def test_modifying_tuples():
 
 
 @pytest.mark.interpreter
+def test_listcomp_target_does_not_leak(device):
+    # A comprehension target must stay scoped to the comprehension (Python 3
+    # semantics) and not clobber a same-named outer variable.
+    @triton.jit
+    def kernel(x_ptr, o):
+        acc = tl.load(x_ptr)  # 1.0
+        _ = [acc for acc in (7.0, 9.0)]  # `acc` scoped to the comprehension
+        off = tl.arange(0, 8)
+        tl.store(o + off, off * 0.0 + acc)
+
+    x = torch.ones(1, dtype=torch.float32, device=device)
+    o = torch.zeros(8, dtype=torch.float32, device=device)
+    kernel[(1, )](x, o)
+    assert o[0].item() == 1.0  # fail-before: 9.0 (the comprehension's last value)
+
+
+@pytest.mark.interpreter
 def test_tuple_logic():
 
     @triton.jit

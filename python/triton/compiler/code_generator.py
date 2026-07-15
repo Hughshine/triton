@@ -534,10 +534,24 @@ class CodeGenerator(ast.NodeVisitor):
         if not isinstance(iter, tl_tuple):
             raise NotImplementedError("only tuple comprehensions are supported")
 
+        # The comprehension target has its own scope in Python 3 and must not
+        # leak into the enclosing function scope; snapshot any outer binding of
+        # the same name and restore it after the comprehension.
+        name = comp.target.id
+        had_lscope, saved_lscope = name in self.lscope, self.lscope.get(name)
+        had_local, saved_local = name in self.local_defs, self.local_defs.get(name)
         results = []
         for item in iter:
-            self.set_value(comp.target.id, item)
+            self.set_value(name, item)
             results.append(self.visit(node.elt))
+        if had_lscope:
+            self.lscope[name] = saved_lscope
+        else:
+            self.lscope.pop(name, None)
+        if had_local:
+            self.local_defs[name] = saved_local
+        else:
+            self.local_defs.pop(name, None)
         return tl_tuple(results)
 
     # By design, only non-kernel functions can return
