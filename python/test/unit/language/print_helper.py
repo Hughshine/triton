@@ -33,6 +33,12 @@ def kernel_device_print_hex(X, Y, BLOCK: tl.constexpr):
 
 
 @triton.jit
+def kernel_device_print_hex_negative(X, BLOCK: tl.constexpr):
+    x = tl.load(X + tl.arange(0, BLOCK))
+    tl.device_print("x: ", x, hex=True)
+
+
+@triton.jit
 def kernel_print(X, Y, BLOCK: tl.constexpr):
     x = tl.load(X + tl.arange(0, BLOCK))
     # Triton should add a space after this prefix.
@@ -142,6 +148,8 @@ def test_print(func: str, data_type: str, device: str):
         kernel_print_no_arg[(1, )](num_warps=num_warps)
     elif func == "device_print_hex":
         kernel_device_print_hex[(1, )](x, y, num_warps=num_warps, BLOCK=N)
+    elif func == "device_print_hex_negative":
+        kernel_device_print_hex_negative[(1, )](-x, num_warps=num_warps, BLOCK=N)
     elif func == "device_print_pointer":
         kernel_print_pointer[(1, )](x, y, num_warps=num_warps, BLOCK=N)
     elif func == "device_print_2d_tensor":
@@ -155,7 +163,8 @@ def test_print(func: str, data_type: str, device: str):
 
     excluded_funcs = {
         "print_no_arg", "no_arg_print", "device_print_large", "print_multiple_args", "device_print_multiple_args",
-        "device_print_pointer", "device_print_scalar", "device_print_2d_tensor", "device_print_uint_cast"
+        "device_print_pointer", "device_print_scalar", "device_print_2d_tensor", "device_print_uint_cast",
+        "device_print_hex_negative"
     }
     if func not in excluded_funcs:
         assert_close(y, x)

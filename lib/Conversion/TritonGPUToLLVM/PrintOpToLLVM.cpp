@@ -160,8 +160,12 @@ struct PrintOpConversion : public ConvertOpToLLVMPattern<triton::PrintOp> {
       // construct the format string at the same time as we populate
       // printfOperands.  But we don't want to create BLOCK_SIZE duplicate
       // strings, so we cache the Value.
-      auto isSignedOperands =
-          llvm::SmallVector<bool>(printfOperands.size(), isSigned);
+      // Hex prints as `0x%0Nx` (unsigned, padded to the type width); a signed
+      // sub-32-bit operand would be sign-extended to i32 and leak upper nibbles
+      // (int8 -1 -> 0xffffffff instead of 0xff), so zero-extend on the hex
+      // path.
+      auto isSignedOperands = llvm::SmallVector<bool>(printfOperands.size(),
+                                                      hex ? false : isSigned);
       if (i == 0) {
         formatStrValue = llPrintf(formatStr, printfOperands, isSignedOperands,
                                   rewriter, &formatStrByteCount);

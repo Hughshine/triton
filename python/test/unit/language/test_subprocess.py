@@ -25,9 +25,12 @@ torch_types = ["int8", "uint8", "int16", "int32", "long", "float16", "float32", 
                                                       ("device_print_large", "int32"),
                                                       ("print_multiple_args", "int32"),
                                                       ("device_print_multiple_args", "int32"),
+                                                      ("device_print_hex", "int8"),
                                                       ("device_print_hex", "int16"),
                                                       ("device_print_hex", "int32"),
                                                       ("device_print_hex", "int64"),
+                                                      ("device_print_hex_negative", "int8"),
+                                                      ("device_print_hex_negative", "int16"),
                                                       ("device_print_pointer", "int32"),
                                                       ("device_print_negative", "int32"),
                                                       ("device_print_uint", "uint32"),
@@ -78,15 +81,16 @@ def test_print(func_type: str, data_type: str, device: str):
             line = f"pid (0, 0, 0) idx ({i:3}) x: {-i}"
             expected_lines[line] = 1
     elif func_type == "device_print_hex":
+        width = {"int8": 2, "int16": 4, "int32": 8, "int64": 16}[data_type]
         for i in range(N):
-            line = f"pid (0, 0, 0) idx ({i:3}) x: 0x"
-            if data_type == "int16":
-                line += f"{i:04x}"
-            if data_type == "int32":
-                line += f"{i:08x}"
-            if data_type == "int64":
-                line += f"{i:016x}"
-            expected_lines[line] = 1
+            expected_lines[f"pid (0, 0, 0) idx ({i:3}) x: 0x{i & ((1 << (4 * width)) - 1):0{width}x}"] = 1
+    elif func_type == "device_print_hex_negative":
+        # Hex must print the type-width bytes, not a sign-extended 32-bit value
+        # (int8 -1 -> 0xff, not 0xffffffff).
+        width = {"int8": 2, "int16": 4}[data_type]
+        for i in range(N):
+            v = (-i) & ((1 << (4 * width)) - 1)
+            expected_lines[f"pid (0, 0, 0) idx ({i:3}) x: 0x{v:0{width}x}"] = 1
     elif func_type == "static_print":
         expected_lines[f" int32[constexpr[{N}]]"] = 1
     elif func_type == "no_arg_print":
