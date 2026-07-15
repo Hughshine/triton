@@ -576,3 +576,18 @@ def test_gluon_kernel(target):
         kernel_path = write_triton_kernels(tmp_dir, gluon_kernel_src, kernel_utils_src)
         compile_aot_kernel_no_specialization(tmp_dir, kernel_path, dtype, BM, BN, BK, target=target)
         check_hasco_binary_str(tmp_dir, dtype)
+
+
+@pytest.mark.skipif(not is_cuda(), reason="Requires CUDA")
+def test_compile_cuda_target_flag():
+    # --target cuda:<arch>:<warp> must compile, not crash: str.split() left arch a str,
+    # which hit the NVIDIA backend's numeric `arch >= 100`. Target this machine's own arch.
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        cur = triton.runtime.driver.active.get_current_target()
+        target = GPUTarget("cuda", int(cur.arch), 32)
+        dtype = "fp16"
+        BM, BN, BK = 16, 16, 16
+        kernel_path = write_triton_kernels(tmp_dir, kernel_src, kernel_utils_src)
+        compile_aot_kernel_no_specialization(tmp_dir, kernel_path, dtype, BM, BN, BK, target=target)
+        assert len(glob.glob(f"matmul_{dtype}.*.h", root_dir=tmp_dir)) == 1
+        assert len(glob.glob(f"matmul_{dtype}.*.c", root_dir=tmp_dir)) == 1

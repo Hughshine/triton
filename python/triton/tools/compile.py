@@ -54,6 +54,15 @@ used to run this `compile.py` script
 """
 
 
+def _parse_target(target: str):
+    # str.split leaves every field a str; the cuda backend compares arch numerically
+    # (arch >= 100), so coerce arch/warp_size to int to match the driver-supplied target.
+    backend, arch, warp_size = target.split(":")
+    if backend == "cuda":
+        arch = int(arch)
+    return triton.backends.compiler.GPUTarget(backend, arch, int(warp_size))
+
+
 def main():
     # command-line arguments
     parser = ArgumentParser(description=desc)
@@ -134,7 +143,7 @@ def compile_kernel(args: CompileArgs):
     attrs = {k: [["tt.divisibility", 16]] for k, v in hints.items() if v == 16}
     kernel.create_binder()
     src = kernel.ASTSource(fn=kernel, constexprs=constants, signature=signature, attrs=attrs)
-    target = triton.backends.compiler.GPUTarget(*args.target.split(":")) \
+    target = _parse_target(args.target) \
         if args.target else triton.runtime.driver.active.get_current_target()
     backend = triton.compiler.make_backend(target)
     kwargs = {"num_warps": args.num_warps, "num_stages": args.num_stages}
