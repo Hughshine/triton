@@ -4186,6 +4186,31 @@ def test_scaled_dot(M, N, K, col_a, col_b, rhs_scale, mxfp_type, normal_type, nu
 
 
 @pytest.mark.interpreter
+def test_scaled_dot_3d_rhs_only_scale(device):
+    # A batched (rank-3) dot_scaled with only rhs_scale must compile: the
+    # transpose helper assumed a rank-2 operand and asserted on rank 3.
+    @triton.jit
+    def kern(a_ptr, b_ptr, sb_ptr, c_ptr, B: tl.constexpr, M: tl.constexpr, K: tl.constexpr, N: tl.constexpr,
+             SK: tl.constexpr):
+        ob = tl.arange(0, B)[:, None, None]
+        rm = tl.arange(0, M)[None, :, None]
+        rk = tl.arange(0, K)[None, None, :]
+        rn = tl.arange(0, N)[None, None, :]
+        a = tl.load(a_ptr + ob * M * K + rm * K + rk)
+        b = tl.load(b_ptr + ob * K * N + tl.arange(0, K)[None, :, None] * N + rn)
+        sb = tl.load(sb_ptr + ob * N * SK + tl.arange(0, N)[None, :, None] * SK + tl.arange(0, SK)[None, None, :])
+        c = tl.dot_scaled(a, None, "e5m2", b, sb, "e5m2", out_dtype=tl.float32)
+        tl.store(c_ptr + ob * M * N + rm * N + rn, c)
+
+    B, M, K, N, G = 2, 32, 64, 32, 32
+    a = torch.randint(0, 255, (B, M, K), dtype=torch.uint8, device=device)
+    b = torch.randint(0, 255, (B, K, N), dtype=torch.uint8, device=device)
+    sb = torch.randint(120, 130, (B, N, K // G), dtype=torch.uint8, device=device)
+    c = torch.zeros((B, M, N), dtype=torch.float32, device=device)
+    kern[(1, )](a, b, sb, c, B, M, K, N, K // G)
+
+
+@pytest.mark.interpreter
 @pytest.mark.parametrize(
     "B, num_warps, M, N, K, BLOCK_M, BLOCK_N, in_dtype_str, out_dtype_str",
     [(B, num_warps, M, N, K, BLOCK_M, BLOCK_N, in_dtype_str, out_dtype_str)

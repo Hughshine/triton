@@ -992,7 +992,13 @@ static void decomposeMixedModeDotOp(ModuleOp mod, int computeCapability) {
 static void transposeDotOp(DotScaledOp dotOp) {
   OpBuilder builder(dotOp);
   Value lhs = dotOp.getA();
-  std::array<int, 2> transOrder = {1, 0};
+  // Keep any leading batch dims and swap only the last two axes, so a batched
+  // (rank-3) dot_scaled transposes correctly instead of asserting on a
+  // rank-2-only {1, 0} order.
+  int rank = cast<RankedTensorType>(lhs.getType()).getRank();
+  SmallVector<int> transOrder(rank);
+  std::iota(transOrder.begin(), transOrder.end(), 0);
+  std::swap(transOrder[rank - 2], transOrder[rank - 1]);
   Value lhsTransposed = TransOp::create(builder, lhs.getLoc(), lhs, transOrder);
   Value rhs = dotOp.getB();
   Value rhsTransposed = TransOp::create(builder, rhs.getLoc(), rhs, transOrder);
