@@ -539,6 +539,44 @@ def test_cache_closure():
     assert "cst has changed since we compiled this kernel, from constexpr[42] to constexpr[43]" in str(e.value)
 
 
+TYPEFLIP_GLOBAL = tl.constexpr(16777217)  # 2**24 + 1 : int == float64 but bakes differently
+
+
+def test_cache_constexpr_global_typeflip(device):
+    global TYPEFLIP_GLOBAL
+    TYPEFLIP_GLOBAL = tl.constexpr(16777217)
+
+    @triton.jit
+    def kernel(out):
+        tl.store(out + tl.arange(0, 1), TYPEFLIP_GLOBAL)
+
+    out = torch.full((1, ), -1, dtype=torch.int32, device=device)
+    kernel[(1, )](out)
+    assert out.item() == 16777217
+
+    # ==-equal but different type -> its own kernel would bake 16777216 (float32 rounds)
+    TYPEFLIP_GLOBAL = tl.constexpr(float(16777217))
+    with pytest.raises(RuntimeError, match="has changed since we compiled this kernel"):
+        kernel[(1, )](out)
+
+
+def test_cache_constexpr_global_bool_int_collision(device):
+    global TYPEFLIP_GLOBAL
+    TYPEFLIP_GLOBAL = tl.constexpr(True)
+
+    @triton.jit
+    def kernel(out):
+        tl.store(out + tl.arange(0, 1), TYPEFLIP_GLOBAL)
+
+    out = torch.full((1, ), -1, dtype=torch.int32, device=device)
+    kernel[(1, )](out)
+
+    # True == 1 but is a different type; must be treated as a change
+    TYPEFLIP_GLOBAL = tl.constexpr(1)
+    with pytest.raises(RuntimeError, match="has changed since we compiled this kernel"):
+        kernel[(1, )](out)
+
+
 @triton.jit
 def no_cache_callable_inner():
     pass

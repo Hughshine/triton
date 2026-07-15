@@ -758,12 +758,16 @@ class JITFunction(JITCallable, KernelInterface[T]):
             if kernel is None:
                 return None
 
-        # Check that used global values have not changed.
+        # Check that used global values have not changed. Compare by repr so a
+        # ==-equal type-flip (e.g. constexpr int 16777217 -> float 16777217.0,
+        # which bake different literals) counts as a change, matching how the
+        # fn-hash distinguishes constexpr globals in cache_key.
         not_present = object()
         for (name, _), (val, globals_dict) in self.used_global_vals.items():
-            if (newVal := globals_dict.get(name, not_present)) != val:
+            newVal = globals_dict.get(name, not_present)
+            if newVal is not_present or repr(newVal) != repr(val):
                 raise RuntimeError(
-                    f"Global variable {name} has changed since we compiled this kernel, from {val} to {newVal}")
+                    f"Global variable {name} has changed since we compiled this kernel, from {val!r} to {newVal!r}")
 
         if not warmup:
             # canonicalize grid
