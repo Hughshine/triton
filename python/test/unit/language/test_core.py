@@ -7233,6 +7233,19 @@ def test_load_scalar_with_mask(device):
     assert Out.data[0] == 0
 
 
+@pytest.mark.interpreter
+@pytest.mark.parametrize("flag", [True, False])
+def test_bool_annotated_arg(flag, device):
+
+    @triton.jit
+    def kernel(Out, flag: bool):
+        tl.store(Out, tl.where(flag, 7, 9))
+
+    out = torch.empty((), device=device, dtype=torch.int32)
+    kernel[(1, )](out, flag)
+    assert out.item() == (7 if flag else 9)
+
+
 # This test is used to test our own PTX codegen for float16 and int16 conversions
 # maybe delete it later after ptxas has been fixed
 @pytest.mark.parametrize("dtype_str", ['float16', 'int16'])

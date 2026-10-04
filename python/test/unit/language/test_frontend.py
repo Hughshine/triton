@@ -128,6 +128,31 @@ def test_store_int_to_bool():
     run_filecheck_test(kernel, args=(MockTensor(tl.int1), 256))
 
 
+def test_bool_annotation():
+
+    @triton.jit
+    def kernel(Out, flag: bool, other: bool = False, C: tl.constexpr = 1):
+        # CHECK-LABEL: tt.func public @kernel
+        # CHECK-SAME: %arg1: i1, %arg2: i1
+        tl.static_assert(bool(C))
+        local: bool = flag
+        # CHECK: arith.select %arg1
+        tl.store(Out, tl.where(local, 1.0, 2.0))
+
+    run_filecheck_test(kernel, args=(MockTensor(tl.float32), True))
+
+
+def test_bool_of_tensor():
+
+    @triton.jit
+    def kernel(n):
+        if bool(n):
+            pass
+
+    with pytest.raises(CompilationError, match=r"bool\(\) of a tensor is not supported"):
+        run_parser(kernel, args=(2, ))
+
+
 @pytest.mark.parametrize("dtype",
                          [tl.float16, tl.bfloat16, tl.float32, tl.float64, tl.float8e4nv, tl.float8e5, tl.float8e4b15],
                          ids=str)

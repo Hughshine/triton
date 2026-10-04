@@ -365,7 +365,7 @@ class CodeGenerator(ast.NodeVisitor):
 
     builtin_namespace: Dict[str, Any] = {
         _.__name__: _
-        for _ in (len, list, range, float, int, isinstance, getattr, hasattr)
+        for _ in (len, list, range, float, int, bool, isinstance, getattr, hasattr)
     }
     builtin_namespace.update((
         ('print', language.core.device_print),
@@ -1728,6 +1728,11 @@ class CodeGenerator(ast.NodeVisitor):
 
         return ret
 
+    def static_bool(value=False):
+        if _is_triton_tensor(value):
+            raise TypeError("bool() of a tensor is not supported; use an explicit comparison such as `x != 0`")
+        return bool(value)
+
     from ..experimental.gluon import language as ttgl
     statically_implemented_functions: Dict[object, Callable[[ast.Call], Any]] = {
         language.core.static_assert: execute_static_assert,
@@ -1735,6 +1740,7 @@ class CodeGenerator(ast.NodeVisitor):
         ttgl.static_assert: execute_static_assert,
         ttgl.static_print: static_executor(print),
         int: static_executor(int),
+        bool: static_executor(static_bool),
         len: static_executor(len),
     }
 
